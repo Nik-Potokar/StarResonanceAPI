@@ -31,11 +31,11 @@ def get_active_network_cards(auto_check_time: int = 3) -> Optional[InterfaceStat
     interfaces = get_if_list()
 
     if not interfaces:
-        print("未找到任何网卡")
+        print("No network adapters found")
         return None
 
     check_time = max(auto_check_time, 1)
-    print(f"开始监控所有网卡流量,请等待{check_time}秒")
+    print(f"Starting to monitor all network adapter traffic, please wait {check_time} seconds")
 
     stats = {}
     done = threading.Event()

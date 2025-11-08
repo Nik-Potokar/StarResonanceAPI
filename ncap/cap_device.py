@@ -60,7 +60,7 @@ class CapDevice:
 
     def start(self):
         """Start packet capture"""
-        print(f"启动网络抓包: {self.device_name}")
+        print(f"Starting network packet capture: {self.device_name}")
 
         # Start packet processing thread
         processing_thread = threading.Thread(target=self._process_queue, daemon=True)
@@ -143,7 +143,7 @@ class CapDevice:
                             self.clear_tcp_cache()
                             self.tcp_next_seq = tcp_layer.seq + len(payload)
                             cache.clear_all_data()
-                            print(f"识别游戏服务器: {src_addr}")
+                            print(f"Game server identified: {src_addr}")
                             find_game_server = True
 
                     # Check reverse direction
@@ -199,7 +199,7 @@ class CapDevice:
                 self.clear_tcp_cache()
                 self.tcp_next_seq = seq + payload_len
                 cache.clear_all_data()
-                print(f"识别游戏服务器: {src_addr}")
+                print(f"Game server identified: {src_addr}")
                 return True
 
         return False
@@ -242,7 +242,7 @@ class CapDevice:
                 self.current_server = rev_server
                 self.clear_tcp_cache()
                 self.tcp_next_seq = ack
-                print(f"识别游戏服务器: {rev_addr}")
+                print(f"Game server identified: {rev_addr}")
                 return True
 
         return False
@@ -463,13 +463,13 @@ class CapDevice:
             if match:
                 name = match.group(1).strip()
                 if name:
-                    print(f"场景切换: {name}")
+                    print(f"Scene changed: {name}")
                     cache.update_scene(lambda info: setattr(info.scene, 'name', name))
                 else:
-                    print("场景切换: 未知场景名称")
+                    print("Scene changed: Unknown scene name")
                     cache.update_scene(lambda info: setattr(info.scene, 'name', ""))
         except Exception as e:
-            print(f"解析场景切换数据失败: {e}")
+            print(f"Failed to parse scene change data: {e}")
 
     def process_sync_near_entities(self, payload: bytes):
         """Process sync near entities - simplified version"""
@@ -532,7 +532,7 @@ class CapDevice:
                 if seq in self.tcp_cache_time:
                     del self.tcp_cache_time[seq]
                 count += 1
-            print(f"TCP缓存过大，已清理{count}个过期条目")
+            print(f"TCP cache too large, cleaned {count} expired entries")
 
 
 def is_player_uuid(uuid: int) -> bool:

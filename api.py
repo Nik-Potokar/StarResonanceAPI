@@ -134,10 +134,10 @@ def run_api(port: int = 8989, expire_time: int = 10):
         expire_time: Data expiration time
     """
     app = create_app(expire_time)
-    print(f"服务启动在: http://127.0.0.1:{port}")
+    print(f"API server started at: http://127.0.0.1:{port}")
 
     try:
         app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
     except Exception as e:
-        print(f"API服务错误: {e}")
+        print(f"API server error: {e}")
         raise

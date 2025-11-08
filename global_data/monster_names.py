@@ -19,7 +19,7 @@ def init_monster_names():
     try:
         with open(json_path, 'r', encoding='utf-8') as f:
             monster_names = json.load(f)
-        print(f"怪物映射表加载完成,加载数量: {len(monster_names)}")
+        print(f"Monster name mapping loaded successfully, count: {len(monster_names)}")
     except Exception as e:
-        print(f"加载怪物映射表解析错误: {e}")
+        print(f"Failed to load monster name mapping: {e}")
         raise
