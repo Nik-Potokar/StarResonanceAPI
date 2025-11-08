@@ -10,10 +10,19 @@ import threading
 import time
 from typing import Optional
 
-from scapy.all import get_if_list, get_windows_if_list, WINDOWS
+from scapy.all import get_if_list, WINDOWS
 from global_data import monster_names as monster_names_module
 from ncap import CapCore, get_active_network_cards
 from api import run_api
+
+# Try to import Windows-specific interface functions
+try:
+    from scapy.arch.windows import get_windows_if_list
+except ImportError:
+    try:
+        from scapy.all import get_windows_if_list
+    except ImportError:
+        get_windows_if_list = None
 
 
 def main():
@@ -38,16 +47,21 @@ def main():
 
     # Get all network interfaces with descriptions
     try:
-        if WINDOWS:
-            # On Windows, get interface descriptions
-            win_ifaces = get_windows_if_list()
-            devices = get_if_list()
-            # Create a mapping of interface name to description
-            iface_descriptions = {}
-            for iface in win_ifaces:
-                iface_descriptions[iface['name']] = iface.get('description', iface['name'])
+        devices = get_if_list()
+        iface_descriptions = {}
+
+        if WINDOWS and get_windows_if_list is not None:
+            # On Windows, try to get interface descriptions
+            try:
+                win_ifaces = get_windows_if_list()
+                for iface in win_ifaces:
+                    iface_descriptions[iface['name']] = iface.get('description', iface['name'])
+            except Exception as e:
+                # If getting descriptions fails, just use interface names
+                print(f"警告: 无法获取网卡描述信息: {e}")
+                iface_descriptions = {iface: iface for iface in devices}
         else:
-            devices = get_if_list()
+            # On non-Windows or if get_windows_if_list not available, use interface names
             iface_descriptions = {iface: iface for iface in devices}
     except Exception as e:
         print(f"获取网卡失败: {e}")
