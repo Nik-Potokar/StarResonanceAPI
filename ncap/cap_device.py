@@ -478,13 +478,155 @@ class CapDevice:
         pass
 
     def process_sync_container_data(self, payload: bytes):
-        """Process sync container data - simplified version"""
-        # Note: Full protobuf parsing would require the complete .proto file
-        pass
+        """Process sync container data - handles player and scene information"""
+        try:
+            # This is a complex nested protobuf message
+            # We'll do basic parsing to extract player ID and scene info
+            # Looking for specific field patterns from the Go implementation
+
+            def read_varint(data, pos):
+                """Read a protobuf varint"""
+                result = 0
+                shift = 0
+                while pos < len(data):
+                    byte = data[pos]
+                    result |= (byte & 0x7F) << shift
+                    pos += 1
+                    if not (byte & 0x80):
+                        break
+                    shift += 7
+                return result, pos
+
+            pos = 0
+            char_id = 0
+            map_id = 0
+            line_id = 0
+
+            # Parse the message looking for key fields
+            while pos < len(payload) - 1:
+                tag = payload[pos]
+                pos += 1
+
+                field_num = tag >> 3
+                wire_type = tag & 0x7
+
+                if wire_type == 0:  # Varint
+                    value, pos = read_varint(payload, pos)
+                    # Store some key values we find
+                    if field_num == 1:  # Often char_id
+                        char_id = value
+                elif wire_type == 2:  # Length-delimited
+                    if pos >= len(payload):
+                        break
+                    length, pos = read_varint(payload, pos)
+                    if pos + length > len(payload):
+                        break
+
+                    # Recursively parse nested messages for scene data
+                    nested_data = payload[pos:pos + length]
+                    # Try to find map_id and line_id in nested data
+                    npos = 0
+                    while npos < len(nested_data) - 1:
+                        ntag = nested_data[npos]
+                        npos += 1
+                        nfield = ntag >> 3
+                        nwire = ntag & 0x7
+
+                        if nwire == 0:
+                            nval, npos = read_varint(nested_data, npos)
+                            if nfield == 1 and nval > 0 and nval < 1000:  # Likely map_id
+                                map_id = nval
+                            elif nfield == 2 and nval > 0 and nval < 100:  # Likely line_id
+                                line_id = nval
+                        else:
+                            break
+
+                    pos += length
+                else:
+                    # Skip other wire types
+                    if wire_type == 1:
+                        pos += 8
+                    elif wire_type == 5:
+                        pos += 4
+                    else:
+                        break
+
+            # Update scene data if we found anything useful
+            if char_id > 0:
+                cache.update_scene(lambda info: setattr(info.player, 'id', char_id))
+                print(f"Player ID: {char_id}")
+
+            if map_id > 0:
+                cache.update_scene(lambda info: setattr(info.scene, 'map_id', map_id))
+                print(f"Map ID: {map_id}")
+
+            if line_id > 0:
+                cache.update_scene(lambda info: setattr(info.scene, 'line_id', line_id))
+                print(f"Line ID: {line_id}")
+
+        except Exception as e:
+            print(f"Error parsing sync container data: {e}")
 
     def process_sync_to_me_delta_info(self, payload: bytes):
-        """Process sync to me delta info - simplified version"""
-        pass
+        """Process sync to me delta info - handles player position updates"""
+        try:
+            # Simple protobuf parsing for position data
+            # We're looking for field 53 which contains position (Vector3)
+            pos = 0
+            while pos < len(payload):
+                if pos + 1 >= len(payload):
+                    break
+
+                # Read tag (field number and wire type)
+                tag = payload[pos]
+                pos += 1
+
+                field_num = tag >> 3
+                wire_type = tag & 0x7
+
+                # Field 53 is position data (length-delimited, wire type 2)
+                if field_num == 53 and wire_type == 2:
+                    # Read length
+                    if pos >= len(payload):
+                        break
+                    length = payload[pos]
+                    pos += 1
+
+                    if pos + length > len(payload):
+                        break
+
+                    # Parse Vector3 (3 fixed32 floats)
+                    vec_data = payload[pos:pos + length]
+                    if len(vec_data) >= 12:  # 3 floats * 4 bytes each
+                        import struct
+                        # Protobuf uses little-endian for fixed32
+                        x = struct.unpack('<f', vec_data[0:4])[0]
+                        y = struct.unpack('<f', vec_data[4:8])[0]
+                        z = struct.unpack('<f', vec_data[8:12])[0]
+
+                        # Update player position
+                        cache.update_scene(lambda info: setattr(info.player, 'pos',
+                            cache.Position(x=x, y=y, z=z)))
+                        print(f"Player position updated: ({x:.2f}, {y:.2f}, {z:.2f})")
+                    pos += length
+                elif wire_type == 0:  # Varint
+                    # Skip varint
+                    while pos < len(payload) and payload[pos] & 0x80:
+                        pos += 1
+                    pos += 1
+                elif wire_type == 1:  # Fixed64
+                    pos += 8
+                elif wire_type == 2:  # Length-delimited
+                    if pos >= len(payload):
+                        break
+                    length = payload[pos]
+                    pos += 1 + length
+                elif wire_type == 5:  # Fixed32
+                    pos += 4
+                else:
+                    break
+        except Exception as e:
+            print(f"Error parsing sync to me delta: {e}")
 
     def process_sync_near_delta_info(self, payload: bytes):
         """Process sync near delta info - simplified version"""
