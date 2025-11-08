@@ -1,7 +1,7 @@
 """
 Packet capture core
 """
-from scapy.all import conf, get_if_list
+from scapy.all import conf, get_if_list, WINDOWS
 from .cap_device import CapDevice
 
 
@@ -20,7 +20,7 @@ class CapCore:
             device_name: Device description or name
 
         Returns:
-            Device name
+            Device name or interface object
 
         Raises:
             ValueError: If device not found
@@ -30,9 +30,13 @@ class CapCore:
 
         # Check if device exists
         if device_name in devices:
+            # On Windows, we might need to get the actual interface object
+            if WINDOWS and hasattr(conf, 'ifaces') and device_name in conf.ifaces:
+                # Return the interface object for better compatibility on Windows
+                return conf.ifaces[device_name]
             return device_name
 
-        raise ValueError(f"网卡设备不存在: {device_name}")
+        raise ValueError(f"Network adapter not found: {device_name}")
 
     def start(self, device_name: str):
         """
@@ -45,5 +49,6 @@ class CapCore:
             ValueError: If device not found
         """
         device = self.get_device(device_name)
+        # Pass both the device object/name and the original name for display
         cap_device = CapDevice(device, device_name)
         cap_device.start()

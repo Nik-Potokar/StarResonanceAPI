@@ -75,7 +75,7 @@ class CapDevice:
                 store=False
             )
         except Exception as e:
-            print(f"数据包捕获错误: {e}")
+            print(f"Packet capture error: {e}")
             raise
 
     def _enqueue_packet(self, packet):
