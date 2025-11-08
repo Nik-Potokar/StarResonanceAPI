@@ -14,7 +14,7 @@ var MonsterNames map[uint64]string
 
 func InitMonsterNames() {
 	if err := json.Unmarshal(bytes.NewBufferString(MonsterNamesJson).Bytes(), &MonsterNames); err != nil {
-		log.Fatalln("加载怪物映射表解析错误: ", err.Error())
+		log.Fatalln("Failed to parse monster mapping table: ", err.Error())
 	}
-	log.Println("怪物映射表加载完成,加载数量: ", len(MonsterNames))
+	log.Println("Monster mapping table loaded, count: ", len(MonsterNames))
 }

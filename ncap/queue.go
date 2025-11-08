@@ -2,7 +2,7 @@ package ncap
 
 import "sync"
 
-// Queue 泛型队列 - 线程安全版本
+// Queue generic queue - thread-safe version
 type Queue[T any] struct {
 	items []T
 	mu    sync.Mutex
@@ -26,7 +26,7 @@ func (q *Queue[T]) Dequeue() (T, bool) {
 		return zero, false
 	}
 	item := q.items[0]
-	// 更高效的slice操作，避免创建新slice
+	// More efficient slice operation, avoid creating new slice
 	copy(q.items, q.items[1:])
 	q.items = q.items[:len(q.items)-1]
 	return item, true
@@ -54,9 +54,9 @@ func (q *Queue[T]) Size() int {
 	return len(q.items)
 }
 
-// Clear 清空队列（新增方法）
+// Clear clears the queue (added method)
 func (q *Queue[T]) Clear() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.items = q.items[:0]  // 重置slice但保留容量
+	q.items = q.items[:0]  // Reset slice but keep capacity
 }

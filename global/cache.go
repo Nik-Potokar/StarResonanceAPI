@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// 场景怪物数据
+// Scene monster data
 var SceneMonsterList = make(map[uint64]*Monster)
 var SceneMonsterListLock = sync.RWMutex{}
 
@@ -15,22 +15,22 @@ var CurrentScene *SceneInfo = nil
 var CurrentSceneLock = sync.RWMutex{}
 
 type SceneInfo struct {
-	Scene  *SceneData   `json:"scene"`  //当前场景信息
-	Player *ScenePlayer `json:"player"` //当前场景自己的信息
+	Scene  *SceneData   `json:"scene"`  // Current scene information
+	Player *ScenePlayer `json:"player"` // Current player information in scene
 }
 type SceneData struct {
-	MapId  uint32 `json:"map_id"`  //场景ID
-	Name   string `json:"name"`    //场景名称
-	LineId uint32 `json:"line_id"` //场景线路ID
+	MapId  uint32 `json:"map_id"`  // Scene ID
+	Name   string `json:"name"`    // Scene name
+	LineId uint32 `json:"line_id"` // Scene line/server ID
 }
 type ScenePlayer struct {
-	Id         uint64    `json:"id"`            //自己ID
-	FightPoint int32     `json:"fight_point"`   //评分
-	Name       string    `json:"name"`          //自己昵称
-	Level      int32     `json:"level"`         //玩家等级
-	Hp         int64     `json:"hp"`            //当前血量
-	MaxHp      int64     `json:"max_hp"`        //最大血量
-	Pos        *Position `json:"pos,omitempty"` //自己坐标
+	Id         uint64    `json:"id"`            // Player ID
+	FightPoint int32     `json:"fight_point"`   // Combat rating
+	Name       string    `json:"name"`          // Player nickname
+	Level      int32     `json:"level"`         // Player level
+	Hp         int64     `json:"hp"`            // Current HP
+	MaxHp      int64     `json:"max_hp"`        // Maximum HP
+	Pos        *Position `json:"pos,omitempty"` // Player position
 }
 
 type Position struct {
@@ -39,18 +39,18 @@ type Position struct {
 	Z float32 `json:"z"`
 }
 type AttackPlayer struct {
-	Name           string `json:"name,omitempty"` //玩家昵称
-	LastAttackTime int64  `json:"-"`              //最后攻击时间
+	Name           string `json:"name,omitempty"` // Player nickname
+	LastAttackTime int64  `json:"-"`              // Last attack time
 }
 type Monster struct {
-	Name          string                   `json:"name,omitempty"`           //怪物名称
-	Hp            uint64                   `json:"hp"`                       //当前血量
-	MaxHp         uint64                   `json:"max_hp,omitempty"`         //最大血量
-	Pos           *Position                `json:"pos,omitempty"`            //怪物坐标
-	TemplateId    uint64                   `json:"template_id,omitempty"`    //模板ID
-	EntityId      uint64                   `json:"entity_id,omitempty"`      //当前敌人ID
-	AttackPlayers map[uint64]*AttackPlayer `json:"attack_players,omitempty"` //正在攻击的玩家列表
-	UpdateTime    int64                    `json:"-"`                        //数据最后更新时间
+	Name          string                   `json:"name,omitempty"`           // Monster name
+	Hp            uint64                   `json:"hp"`                       // Current HP
+	MaxHp         uint64                   `json:"max_hp,omitempty"`         // Maximum HP
+	Pos           *Position                `json:"pos,omitempty"`            // Monster position
+	TemplateId    uint64                   `json:"template_id,omitempty"`    // Template ID
+	EntityId      uint64                   `json:"entity_id,omitempty"`      // Current enemy ID
+	AttackPlayers map[uint64]*AttackPlayer `json:"attack_players,omitempty"` // List of players attacking
+	UpdateTime    int64                    `json:"-"`                        // Last data update time
 }
 
 func ClearAllData() {
@@ -65,7 +65,8 @@ func clearMonsterList() {
 //func clearScene() {
 //	CurrentSceneLock.Lock()
 //	defer CurrentSceneLock.Unlock()
-//	//玩家坐标去掉,场景切换其他信息不会变动,但是如果是网络中断导致的重新识别服务器会导致当前场景数据被清空
+//	// Remove player coordinates, other scene information won't change during scene switch,
+//	// but network interruption causing server re-recognition will clear current scene data
 //	if CurrentScene != nil && CurrentScene.Player != nil{
 //		CurrentScene.Player.Pos = nil
 //	}
@@ -75,7 +76,7 @@ func FindMonsterId(uuid uint64, callback func(*Monster)) {
 	var monster *Monster
 	var isNew bool
 
-	// 加锁获取或创建monster对象
+	// Lock to get or create monster object
 	SceneMonsterListLock.Lock()
 	if existing, has := SceneMonsterList[uuid]; has {
 		monster = existing
@@ -89,17 +90,17 @@ func FindMonsterId(uuid uint64, callback func(*Monster)) {
 	}
 	SceneMonsterListLock.Unlock()
 
-	// 在锁外调用callback，避免死锁和长时间持锁
+	// Call callback outside lock to avoid deadlock and long lock holding
 	startTime := time.Now()
 	callback(monster)
 
-	// 记录性能指标
+	// Log performance metrics
 	duration := time.Since(startTime).Milliseconds()
 	if duration >= 100 {
-		log.Println(fmt.Sprintf("%d 异常更新耗时: %d ms", uuid, duration))
+		log.Println(fmt.Sprintf("%d Abnormal update duration: %d ms", uuid, duration))
 	}
 
-	// 如果不是新创建的对象，需要更新时间戳
+	// If not newly created object, need to update timestamp
 	if !isNew {
 		SceneMonsterListLock.Lock()
 		if currentMonster, exists := SceneMonsterList[uuid]; exists {

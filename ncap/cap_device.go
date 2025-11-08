@@ -25,38 +25,38 @@ type CapDevice struct {
 	deviceName    string
 	device        *pcap.Handle
 	currentServer string
-	userUid       uint64 //当前玩家ID
+	userUid       uint64 // Current player ID
 
-	// TCP重组相关
+	// TCP reassembly related
 	tcpMutex        sync.Mutex
 	tcpDataBuffer   []byte
 	tcpCacheTime    map[uint32]time.Time
-	tcpCache        map[uint32][]byte // 修复：使用uint32避免类型转换溢出
+	tcpCache        map[uint32][]byte // Fix: use uint32 to avoid type conversion overflow
 	tcpStream       *bytes.Buffer
-	tcpNextSeq      uint32 // 修复：使用uint32类型
+	tcpNextSeq      uint32 // Fix: use uint32 type
 	lastAnyPacketAt time.Time
 
-	// 配置
+	// Configuration
 	idleTimeout time.Duration
 	gapTimeout  time.Duration
 
-	// 服务器签名
+	// Server signatures
 	serverSignature      []byte
 	loginReturnSignature []byte
 
 	packetQueue *Queue[gopacket.Packet]
 }
 
-// NewCapDevice 创建新的抓包设备
+// NewCapDevice creates a new packet capture device
 func NewCapDevice(device *pcap.Handle, deviceName string) *CapDevice {
 	return &CapDevice{
 		deviceName:      deviceName,
 		device:          device,
-		tcpCache:        make(map[uint32][]byte), // 修复：使用uint32
+		tcpCache:        make(map[uint32][]byte), // Fix: use uint32
 		tcpCacheTime:    make(map[uint32]time.Time),
 		tcpDataBuffer:   make([]byte, 0),
 		tcpStream:       bytes.NewBuffer(nil),
-		tcpNextSeq:      0, // 初始化为0而不是-1
+		tcpNextSeq:      0, // Initialize to 0 instead of -1
 		idleTimeout:     10 * time.Second,
 		gapTimeout:      2 * time.Second,
 		packetQueue:     NewQueue[gopacket.Packet](),
@@ -74,19 +74,19 @@ func NewCapDevice(device *pcap.Handle, deviceName string) *CapDevice {
 	}
 }
 
-// Start 开始抓包
+// Start begins packet capture
 func (cd *CapDevice) Start() error {
 	if cd.device == nil {
-		return fmt.Errorf("网卡设备未设置")
+		return fmt.Errorf("network device not set")
 	}
 
-	// 设置过滤器
+	// Set filter
 	err := cd.device.SetBPFFilter("ip and tcp")
 	if err != nil {
-		return fmt.Errorf("设置过滤器失败: %v", err)
+		return fmt.Errorf("failed to set filter: %v", err)
 	}
 
-	log.Println("启动网络抓包: ", cd.deviceName)
+	log.Println("Starting packet capture: ", cd.deviceName)
 
 	go func() {
 		for {
@@ -98,20 +98,20 @@ func (cd *CapDevice) Start() error {
 		}
 	}()
 
-	// 开始捕获数据包
+	// Start capturing packets
 	packetSource := gopacket.NewPacketSource(cd.device, cd.device.LinkType())
 	for packet := range packetSource.Packets() {
 		if packet != nil {
 			cd.packetQueue.Enqueue(packet)
 		} else {
-			log.Println("发现空的packet")
+			log.Println("Found empty packet")
 		}
 	}
-	log.Fatalf("数据包chan被关闭,中止运行")
+	log.Fatalf("Packet channel closed, aborting")
 	return nil
 }
 
-// handlePacket 处理单个数据包
+// handlePacket handles a single packet
 func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -120,7 +120,7 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 	}()
 
 	if packet == nil {
-		log.Println("handlePacket 处理数据 == nil")
+		log.Println("handlePacket processing data == nil")
 		return
 	}
 	if packet.NetworkLayer() == nil {
@@ -131,7 +131,7 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 		log.Println("Layers == nil")
 		return
 	}
-	// 提取TCP层
+	// Extract TCP layer
 
 	tcpLayer := packet.Layer(layers.LayerTypeTCP)
 	if tcpLayer == nil {
@@ -143,7 +143,7 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 		return
 	}
 
-	// 提取IP层
+	// Extract IP layer
 	ipLayer := packet.Layer(layers.LayerTypeIPv4)
 	if ipLayer == nil {
 		return
@@ -154,13 +154,13 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 		return
 	}
 
-	// 获取TCP负载
+	// Get TCP payload
 	payload := tcp.Payload
 	if len(payload) == 0 {
 		return
 	}
 
-	// 构造服务器标识
+	// Construct server identifier
 	srcAddr := fmt.Sprintf("%s:%d", ip.SrcIP, tcp.SrcPort)
 	revAddr := fmt.Sprintf("%s:%d", ip.DstIP, tcp.DstPort)
 	srcServer := fmt.Sprintf("%s:%d -> %s:%d", ip.SrcIP, tcp.SrcPort, ip.DstIP, tcp.DstPort)
@@ -170,23 +170,23 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 	defer cd.tcpMutex.Unlock()
 	now := time.Now()
 
-	// 检查空闲超时
+	// Check idle timeout
 	if cd.currentServer != "" {
 		if cd.currentServer == srcServer || cd.currentServer == revServer {
 			cd.lastAnyPacketAt = now
 		}
-		//超时未识别到数据
+		// Timeout without recognizing data
 		if cd.lastAnyPacketAt != (time.Time{}) && now.Sub(cd.lastAnyPacketAt) > cd.idleTimeout {
 			cd.forceReconnect("idle timeout")
 		}
 	}
-	// 服务器识别逻辑
+	// Server recognition logic
 	if cd.currentServer != srcServer && cd.currentServer != revServer {
 		findGameServer := false
-		//尝试通过小包识别服务器
+		// Try to recognize server through small packet
 		if len(payload) > 10 && payload[4] == 0 {
 			data := payload[10:]
-			if len(data) >= 4 { // 确保至少有4字节可读
+			if len(data) >= 4 { // Ensure at least 4 bytes available
 				payloadMs := bytes.NewBuffer(data)
 				for payloadMs.Len() >= 4 {
 					var lenBuf [4]byte
@@ -196,12 +196,12 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 					}
 
 					msgLen := binary.BigEndian.Uint32(lenBuf[:])
-					// 更严格的长度检查
+					// Stricter length check
 					if msgLen < 4 || msgLen > uint32(payloadMs.Len()) || msgLen > 0x0FFFFFFF {
 						break
 					}
 
-					// 确保有足够的数据可读
+					// Ensure enough data available
 					if uint32(payloadMs.Len()) < msgLen-4 {
 						break
 					}
@@ -212,7 +212,7 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 						break
 					}
 
-					// 检查服务器签名 - 增强边界检查
+					// Check server signature - enhanced boundary check
 					sigLen := len(cd.serverSignature)
 					if len(tmp) < 5+sigLen {
 						break
@@ -225,7 +225,7 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 						cd.clearTcpCache()
 						cd.tcpNextSeq = tcp.Seq + uint32(len(payload))
 						global.ClearAllData()
-						log.Println("识别游戏服务器: ", srcAddr)
+						log.Println("Recognized game server: ", srcAddr)
 						findGameServer = true
 						break
 					}
@@ -233,23 +233,23 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 			}
 		}
 
-		// 尝试通过登录返回包识别服务器
+		// Try to recognize server through login response packet
 		if len(payload) == 0x62 {
 			if bytes.Equal(payload[0:10], cd.loginReturnSignature[0:10]) &&
 				bytes.Equal(payload[14:20], cd.loginReturnSignature[14:20]) {
-				//设置新的游戏服务器标识
+				// Set new game server identifier
 				cd.currentServer = srcServer
 				cd.clearTcpCache()
 				cd.tcpNextSeq = tcp.Seq + uint32(len(payload))
 				global.ClearAllData()
-				log.Println("识别游戏服务器: ", srcAddr)
+				log.Println("Recognized game server: ", srcAddr)
 				findGameServer = true
 			}
 		}
 		if len(payload) >= 6 {
 			if payload[4] == 0 && payload[5] == 5 {
 				data := payload[10:]
-				if len(data) >= 4 { // 确保至少有4字节可读
+				if len(data) >= 4 { // Ensure at least 4 bytes available
 					reader := bytes.NewReader(data)
 					for {
 						lenBuf := make([]byte, 4)
@@ -270,7 +270,7 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 						if err != nil || uint32(n) != length-4 {
 							break
 						}
-						//检查签名
+						// Check signature
 						signature := []byte{0x00, 0x06, 0x26, 0xad, 0x66, 0x00}
 						sigLen := len(signature)
 						if len(data1) < 5+sigLen {
@@ -286,7 +286,7 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 							cd.currentServer = revServer
 							cd.clearTcpCache()
 							cd.tcpNextSeq = tcp.Ack
-							log.Println("识别游戏服务器: ", revAddr)
+							log.Println("Recognized game server: ", revAddr)
 							findGameServer = true
 							break
 						}
@@ -295,39 +295,39 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 			}
 		}
 		if !findGameServer {
-			//log.Println("不是游戏服务器: ", srcServer)
+			//log.Println("Not a game server: ", srcServer)
 			return
 		}
 	}
 	if len(cd.currentServer) == 0 {
-		//log.Println("等待识别到游戏服务器")
+		//log.Println("Waiting to recognize game server")
 		return
 	}
-	// TCP流重组
+	// TCP stream reassembly
 	cd.reassembleTcpStream(tcp, payload, now)
 }
 
-// reassembleTcpStream TCP流重组
+// reassembleTcpStream TCP stream reassembly
 func (cd *CapDevice) reassembleTcpStream(tcp *layers.TCP, payload []byte, now time.Time) {
-	// 初始化序列号
+	// Initialize sequence number
 	if cd.tcpNextSeq == 0 {
 		if len(payload) > 4 && binary.BigEndian.Uint32(payload) < 0x0fffff {
 			cd.tcpNextSeq = tcp.Seq
 		} else {
-			// 无法确定初始序列号，使用当前包的序列号
+			// Cannot determine initial sequence number, use current packet's sequence number
 			cd.tcpNextSeq = tcp.Seq
 		}
 	}
-	// 缓存TCP数据包
+	// Cache TCP packet
 	seqKey := tcp.Seq
 	cd.tcpCache[seqKey] = make([]byte, len(payload))
 	copy(cd.tcpCache[seqKey], payload)
 	cd.tcpCacheTime[seqKey] = now
 
-	// 定期清理过期的缓存
+	// Periodically clean up expired cache
 	cd.cleanupOldCache(now)
 
-	// 顺序拼接数据
+	// Sequentially concatenate data
 	messageBuffer := bytes.NewBuffer(nil)
 	currentSeq := cd.tcpNextSeq
 
@@ -345,49 +345,49 @@ func (cd *CapDevice) reassembleTcpStream(tcp *layers.TCP, payload []byte, now ti
 		}
 	}
 
-	// 追加到TCP流
+	// Append to TCP stream
 	if messageBuffer.Len() > 0 {
 		cd.tcpStream.Write(messageBuffer.Bytes())
 	}
-	// 解析消息
+	// Parse messages
 	cd.parseMessages()
 }
 
-// parseMessages 解析消息
+// parseMessages parses messages
 func (cd *CapDevice) parseMessages() {
-	// 保存当前数据
+	// Save current data
 	currentData := cd.tcpStream.Bytes()
 	dataLen := len(currentData)
 	offset := 0
 	for offset < dataLen {
-		// 检查是否有足够的字节读取长度
+		// Check if enough bytes available to read length
 		if offset+4 > dataLen {
 			break
 		}
 
-		// 读取包长度
+		// Read packet length
 		packetSize := binary.BigEndian.Uint32(currentData[offset : offset+4])
 		if packetSize <= 4 || packetSize > 0x0FFFFF {
 			break
 		}
 
-		// 检查是否有完整的包
+		// Check if complete packet available
 		if offset+int(packetSize) > dataLen {
 			break
 		}
 
-		// 提取完整包
+		// Extract complete packet
 		messagePacket := make([]byte, packetSize)
 		copy(messagePacket, currentData[offset:offset+int(packetSize)])
 
-		// 处理消息
+		// Process message
 		cd.handleProcess(messagePacket)
 
-		// 移动偏移
+		// Move offset
 		offset += int(packetSize)
 	}
 
-	// 更新流，只保留未处理的数据
+	// Update stream, keep only unprocessed data
 	if offset > 0 {
 		remaining := currentData[offset:]
 		cd.tcpStream.Reset()
@@ -395,36 +395,36 @@ func (cd *CapDevice) parseMessages() {
 	}
 }
 
-// handleProcess 处理数据包
+// handleProcess processes packets
 func (cd *CapDevice) handleProcess(packets []byte) {
 	if len(packets) < 4 {
-		return // 数据包太小
+		return // Packet too small
 	}
 
 	reader := NewByteReader(packets)
 	for reader.Remaining() > 0 {
-		// 读取包长度
+		// Read packet length
 		packetSize, ok := reader.TryPeekUInt32BE()
 		if !ok {
 			break
 		}
-		// 更严格的边界检查
+		// Stricter boundary check
 		if packetSize < 6 || packetSize > uint32(reader.Remaining()) || packetSize > 0x0FFFFFFF {
 			break
 		}
 
-		// 确保 packetSize 不会导致整数溢出
+		// Ensure packetSize won't cause integer overflow
 		if int(packetSize) < 0 || int(packetSize) > reader.Remaining() {
 			break
 		}
 
-		// 读取完整包
+		// Read complete packet
 		packetData, err := reader.ReadBytes(int(packetSize))
 		if err != nil {
 			break
 		}
 
-		// 验证包数据的完整性
+		// Verify packet data integrity
 		if len(packetData) < 6 {
 			continue
 		}
@@ -435,7 +435,7 @@ func (cd *CapDevice) handleProcess(packets []byte) {
 			continue
 		}
 
-		// 读取消息类型
+		// Read message type
 		packetType, err := packetReader.ReadUInt16BE()
 		if err != nil {
 			continue
@@ -444,13 +444,13 @@ func (cd *CapDevice) handleProcess(packets []byte) {
 		isZstdCompressed := (packetType & 0x8000) != 0
 		msgTypeId := packetType & 0x7FFF
 
-		// 分发到对应处理方法
+		// Dispatch to corresponding handler
 		//log.Println(fmt.Sprintf("msgTypeId=%d", msgTypeId))
 		cd.dispatchMessage(msgTypeId, packetReader, isZstdCompressed)
 	}
 }
 
-// dispatchMessage 分发消息
+// dispatchMessage dispatches messages
 func (cd *CapDevice) dispatchMessage(msgTypeId uint16, reader *ByteReader, isZstdCompressed bool) {
 	switch msgTypeId {
 	case 2: // NotifyMsg
@@ -460,7 +460,7 @@ func (cd *CapDevice) dispatchMessage(msgTypeId uint16, reader *ByteReader, isZst
 	}
 }
 
-// processNotifyMsg 处理Notify消息
+// processNotifyMsg processes Notify messages
 func (cd *CapDevice) processNotifyMsg(reader *ByteReader, isZstdCompressed bool) {
 	serviceUuid, err := reader.ReadUInt64BE()
 	if err != nil {
@@ -488,7 +488,7 @@ func (cd *CapDevice) processNotifyMsg(reader *ByteReader, isZstdCompressed bool)
 	cd.processNotifyMethod(methodId, msgPayload)
 }
 
-// processFrameDown 处理FrameDown消息
+// processFrameDown processes FrameDown messages
 func (cd *CapDevice) processFrameDown(reader *ByteReader, isZstdCompressed bool) {
 	if _, err := reader.ReadUInt32BE(); err != nil {
 		return
@@ -503,28 +503,28 @@ func (cd *CapDevice) processFrameDown(reader *ByteReader, isZstdCompressed bool)
 		nestedPacket = cd.decompressZstdIfNeeded(nestedPacket)
 	}
 
-	cd.handleProcess(nestedPacket) // 递归解析内部消息
+	cd.handleProcess(nestedPacket) // Recursively parse internal messages
 }
 
-// processNotifyMethod 处理Notify方法
+// processNotifyMethod processes Notify methods
 func (cd *CapDevice) processNotifyMethod(methodId uint32, payload []byte) {
 	//log.Println(methodId)
 	switch methodId {
-	case 0x03: //场景切换
+	case 0x03: // Scene switch
 		cd.processSyncSceneData(payload)
-	case 0x00000006: // 同步周边玩家实体
+	case 0x00000006: // Sync nearby player entities
 		cd.processSyncNearEntities(payload)
-	case 0x00000015: // 同步自身完整容器数据
+	case 0x00000015: // Sync player's complete container data
 		cd.processSyncContainerData(payload)
-	case 0x00000016: // 同步自身部分更新
-	case 0x0000002E: // 同步自己受到的增量伤害
+	case 0x00000016: // Sync player's partial update
+	case 0x0000002E: // Sync incremental damage received by player
 		cd.processSyncToMeDeltaInfo(payload)
-	case 0x0000002D: // 同步周边增量伤害
+	case 0x0000002D: // Sync nearby incremental damage
 		cd.processSyncNearDeltaInfo(payload)
 	}
 }
 
-// decompressZstdIfNeeded ZSTD解压
+// decompressZstdIfNeeded ZSTD decompression
 func (cd *CapDevice) decompressZstdIfNeeded(buffer []byte) []byte {
 	if len(buffer) < 4 {
 		return buffer
@@ -544,42 +544,42 @@ func (cd *CapDevice) decompressZstdIfNeeded(buffer []byte) []byte {
 	return result
 }
 
-// forceReconnect 强制重连
+// forceReconnect forces reconnection
 func (cd *CapDevice) forceReconnect(reason string) {
 	log.Println("[PacketAnalyzer] Reconnect due to ", reason, time.Now().Format("15:04:05"))
 	cd.resetCaptureState()
 }
 func (cd *CapDevice) forceResyncTo(seq uint32) {
 	log.Println("[PacketAnalyzer] Resync to seq= ", seq)
-	cd.tcpNextSeq = 0                     // 修复：重置为0
-	cd.tcpCache = make(map[uint32][]byte) // 修复：使用uint32
+	cd.tcpNextSeq = 0                     // Fix: reset to 0
+	cd.tcpCache = make(map[uint32][]byte) // Fix: use uint32
 	cd.tcpCacheTime = make(map[uint32]time.Time)
 	cd.tcpStream.Reset()
 }
 
-// resetCaptureState 重置捕获状态
+// resetCaptureState resets capture state
 func (cd *CapDevice) resetCaptureState() {
-	cd.currentServer = "" //清空当前服务器
+	cd.currentServer = "" // Clear current server
 	cd.clearTcpCache()
 }
 
-// clearTcpCache 清空TCP缓存
+// clearTcpCache clears TCP cache
 func (cd *CapDevice) clearTcpCache() {
-	cd.tcpNextSeq = 0 // 修复：重置为0
+	cd.tcpNextSeq = 0 // Fix: reset to 0
 	cd.tcpStream.Reset()
 
-	cd.tcpCache = make(map[uint32][]byte) // 修复：使用uint32
+	cd.tcpCache = make(map[uint32][]byte) // Fix: use uint32
 	cd.tcpCacheTime = make(map[uint32]time.Time)
 }
 
-// cleanupOldCache 清理过期的TCP缓存，防止内存泄漏
+// cleanupOldCache cleans up expired TCP cache to prevent memory leaks
 func (cd *CapDevice) cleanupOldCache(now time.Time) {
-	// 每100个包清理一次，避免频繁清理
+	// Clean up every 100 packets to avoid frequent cleanup
 	if len(cd.tcpCache) < 100 {
 		return
 	}
 
-	// 清理超过gapTimeout的缓存
+	// Clean up cache exceeding gapTimeout
 	for seq, timestamp := range cd.tcpCacheTime {
 		if now.Sub(timestamp) > cd.gapTimeout {
 			delete(cd.tcpCache, seq)
@@ -587,7 +587,7 @@ func (cd *CapDevice) cleanupOldCache(now time.Time) {
 		}
 	}
 
-	// 如果缓存仍然过大，清理最旧的一半
+	// If cache is still too large, clean up the oldest half
 	if len(cd.tcpCache) > 1000 {
 		count := 0
 		for seq := range cd.tcpCache {
@@ -598,17 +598,17 @@ func (cd *CapDevice) cleanupOldCache(now time.Time) {
 			delete(cd.tcpCacheTime, seq)
 			count++
 		}
-		log.Printf("TCP缓存过大，已清理%d个过期条目", count)
+		log.Printf("TCP cache too large, cleaned up %d expired entries", count)
 	}
 }
 
 func (cd *CapDevice) processSyncSceneData(payload []byte) {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Println("解析场景切换数据失败", err)
+			log.Println("Failed to parse scene switch data", err)
 		}
 	}()
-	//未知的proto格式,暂时读取字节解析场景名称
+	// Unknown proto format, temporarily read bytes to parse scene name
 	start := 43
 	if start >= len(payload) {
 		return
@@ -624,14 +624,14 @@ func (cd *CapDevice) processSyncSceneData(payload []byte) {
 	pattern := regexp.MustCompile("([\u4e00-\u9fa5]+)")
 	name := pattern.FindString(text)
 	if len(strings.Trim(name, " ")) > 0 {
-		log.Println("场景切换: ", name)
+		log.Println("Scene switch: ", name)
 		global.UpdateScene(func(info *global.SceneInfo) {
 			if info != nil && info.Scene != nil {
 				info.Scene.Name = name
 			}
 		})
 	} else {
-		log.Println("场景切换: 未知场景名称")
+		log.Println("Scene switch: Unknown scene name")
 		global.UpdateScene(func(info *global.SceneInfo) {
 			if info != nil && info.Scene != nil {
 				info.Scene.Name = ""
@@ -640,14 +640,14 @@ func (cd *CapDevice) processSyncSceneData(payload []byte) {
 	}
 }
 
-// processSyncNearEntities 处理同步周边实体
+// processSyncNearEntities processes synchronization of nearby entities
 func (cd *CapDevice) processSyncNearEntities(payload []byte) {
 	var msg pb.SyncNearEntities
 	if err := proto.Unmarshal(payload, &msg); err != nil {
-		log.Println("解析proto失败", err.Error())
+		log.Println("Failed to parse proto", err.Error())
 		return
 	}
-	//消失的怪物
+	// Disappeared monsters
 	if msg.Disappear != nil && len(msg.Disappear) > 0 {
 		for _, item := range msg.GetDisappear() {
 			uuid := uint64(item.GetUuid())
@@ -665,7 +665,7 @@ func (cd *CapDevice) processSyncNearEntities(payload []byte) {
 	if msg.Appear == nil || len(msg.Appear) == 0 {
 		return
 	}
-	//已存在怪物
+	// Existing monsters
 	for _, item := range msg.GetAppear() {
 		attrs := item.Attrs
 		entityId := uint64(item.Uuid >> 16)
@@ -676,36 +676,36 @@ func (cd *CapDevice) processSyncNearEntities(payload []byte) {
 	}
 }
 func monsterAttr(entityId uint64, attrs *pb.AttrCollection) {
-	//怪物数据
+	// Monster data
 	global.FindMonsterId(entityId, func(monster *global.Monster) {
 		for _, attr := range attrs.GetAttrs() {
 			if attr.Id == nil || attr.RawData == nil {
 				continue
 			}
 			switch attr.GetId() {
-			case 0x01: //名称
+			case 0x01: // Name
 				value, n := protowire.ConsumeString(attr.RawData)
 				if n > 0 && len(value) > 0 {
-					log.Println(fmt.Sprintf("发现怪物: %s#%d", value, entityId))
+					log.Println(fmt.Sprintf("Found monster: %s#%d", value, entityId))
 					monster.Name = value
 				}
-			case 0x0A: //怪物模板ID
+			case 0x0A: // Monster template ID
 				value, n := protowire.ConsumeVarint(attr.RawData)
 				if n > 0 {
 					monster.TemplateId = value
 					if name, has := global.MonsterNames[value]; has {
-						log.Println(fmt.Sprintf("发现怪物: %s#%d", name, entityId))
+						log.Println(fmt.Sprintf("Found monster: %s#%d", name, entityId))
 						monster.Name = name
 					}
 				}
-			case 0x2C2E: //当前血量
+			case 0x2C2E: // Current HP
 				value, n := protowire.ConsumeVarint(attr.RawData)
 				if n == 0 || len(attr.RawData) == 0 {
 					monster.Hp = 0
 				} else {
 					monster.Hp = value
 				}
-			case 0x2C38: //最大血量
+			case 0x2C38: // Maximum HP
 				value, n := protowire.ConsumeVarint(attr.RawData)
 				if n > 0 {
 					monster.MaxHp = value
@@ -715,11 +715,11 @@ func monsterAttr(entityId uint64, attrs *pb.AttrCollection) {
 	})
 }
 
-// processSyncContainerData 处理同步自身完整容器数据
+// processSyncContainerData processes synchronization of player's complete container data
 func (cd *CapDevice) processSyncContainerData(payload []byte) {
 	var msg pb.SyncContainerData
 	if err := proto.Unmarshal(payload, &msg); err != nil {
-		log.Println(len(payload), "解析SyncContainerData失败", err.Error())
+		log.Println(len(payload), "Failed to parse SyncContainerData", err.Error())
 		return
 	}
 	if msg.VData == nil {
@@ -731,14 +731,14 @@ func (cd *CapDevice) processSyncContainerData(payload []byte) {
 			return
 		}
 
-		// 更新玩家ID
+		// Update player ID
 		if vdata.CharId > 0 {
 			if info.Player != nil {
 				info.Player.Id = uint64(vdata.CharId)
 			}
 		}
 
-		// 更新玩家战斗力
+		// Update player combat rating
 		if vdata.CharBase != nil {
 			if point := vdata.CharBase.GetFightPoint(); point > 0 {
 				if info.Player != nil {
@@ -757,7 +757,7 @@ func (cd *CapDevice) processSyncContainerData(payload []byte) {
 			}
 		}
 
-		// 更新玩家血量
+		// Update player HP
 		if vdata.Attr != nil {
 			if info.Player != nil {
 				info.Player.Hp = vdata.Attr.GetCurHp()
@@ -768,14 +768,14 @@ func (cd *CapDevice) processSyncContainerData(payload []byte) {
 		}
 
 		if vdata.SceneData != nil {
-			//更新场景数据
-			mapId := vdata.SceneData.GetMapId()   //场景地图ID
-			lineId := vdata.SceneData.GetLineId() //场景线路ID
-			// 更新场景信息
+			// Update scene data
+			mapId := vdata.SceneData.GetMapId()   // Scene map ID
+			lineId := vdata.SceneData.GetLineId() // Scene line/server ID
+			// Update scene info
 			if info.Scene != nil {
-				//先收到线路数据,然后在收到坐标数据
+				// Receive line data first, then receive coordinate data
 				if info.Scene.MapId != mapId {
-					//清空坐标
+					// Clear coordinates
 					if info.Player != nil {
 						info.Player.Pos = nil
 					}
@@ -787,11 +787,11 @@ func (cd *CapDevice) processSyncContainerData(payload []byte) {
 	})
 }
 
-// processSyncToMeDeltaInfo 处理同步自身增量伤害
+// processSyncToMeDeltaInfo processes synchronization of player's incremental damage
 func (cd *CapDevice) processSyncToMeDeltaInfo(payload []byte) {
 	var msg pb.SyncToMeDeltaInfo
 	if err := proto.Unmarshal(payload, &msg); err != nil {
-		log.Println("解析SyncToMeDeltaInfo失败", err.Error())
+		log.Println("Failed to parse SyncToMeDeltaInfo", err.Error())
 		return
 	}
 	info := msg.DeltaInfo
@@ -804,26 +804,26 @@ func (cd *CapDevice) processSyncToMeDeltaInfo(payload []byte) {
 	baseDelta := info.GetBaseDelta()
 	if info.Uuid != nil && cd.userUid != uint64(info.GetUuid()) {
 		cd.userUid = uint64(info.GetUuid())
-		log.Println(fmt.Sprintf("获取到当前玩家UUID: %d UID: %d", cd.userUid, cd.userUid>>16))
+		log.Println(fmt.Sprintf("Obtained current player UUID: %d UID: %d", cd.userUid, cd.userUid>>16))
 		global.UpdateScene(func(sceneInfo *global.SceneInfo) {
 			if sceneInfo != nil && sceneInfo.Player != nil {
 				sceneInfo.Player.Id = cd.userUid >> 16
 			}
 		})
 	}
-	//获取自身其他信息
+	// Get player's other information
 	if baseDelta.Attrs != nil && baseDelta.Attrs.Attrs != nil && len(baseDelta.Attrs.Attrs) > 0 {
 		for _, attr := range baseDelta.Attrs.GetAttrs() {
 			switch attr.GetId() {
-			case 53: //坐标数据解析
+			case 53: // Parse coordinate data
 				var posMsg pb.Vector3
 				if err := proto.Unmarshal(attr.GetRawData(), &posMsg); err != nil {
-					log.Println("解析坐标数据失败: ", err.Error())
+					log.Println("Failed to parse coordinate data: ", err.Error())
 					continue
 				}
 				global.UpdateScene(func(sceneInfo *global.SceneInfo) {
 					if sceneInfo != nil && sceneInfo.Player != nil {
-						//log.Println("当前坐标:", posMsg.GetX(), posMsg.GetY(), posMsg.GetZ())
+						//log.Println("Current coordinates:", posMsg.GetX(), posMsg.GetY(), posMsg.GetZ())
 						sceneInfo.Player.Pos = &global.Position{
 							X: posMsg.GetX(),
 							Y: posMsg.GetY(),
@@ -834,15 +834,15 @@ func (cd *CapDevice) processSyncToMeDeltaInfo(payload []byte) {
 			}
 		}
 	}
-	//其他数据同步
+	// Synchronize other data
 	ProcessAoiSyncDelta(baseDelta)
 }
 
-// processSyncNearDeltaInfo 处理同步周边增量伤害
+// processSyncNearDeltaInfo processes synchronization of nearby incremental damage
 func (cd *CapDevice) processSyncNearDeltaInfo(payload []byte) {
 	var msg pb.SyncNearDeltaInfo
 	if err := proto.Unmarshal(payload, &msg); err != nil {
-		log.Println("解析SyncNearDeltaInfo失败", err.Error())
+		log.Println("Failed to parse SyncNearDeltaInfo", err.Error())
 		return
 	}
 	if msg.DeltaInfos == nil || len(msg.DeltaInfos) == 0 {
@@ -873,7 +873,7 @@ func ProcessAoiSyncDelta(data *pb.AoiSyncDelta) {
 		}
 	}
 
-	//技能伤害
+	// Skill damage
 	if data.SkillEffects == nil {
 		return
 	}
@@ -889,13 +889,13 @@ func ProcessAoiSyncDelta(data *pb.AoiSyncDelta) {
 		if attackerUuid == 0 {
 			continue
 		}
-		isAttackerPlayer := isPlayerUUID(attackerUuid) //伤害来源是否是玩家
+		isAttackerPlayer := isPlayerUUID(attackerUuid) // Whether damage source is a player
 		attackerUuid = attackerUuid >> 16
 
-		isDead := item.GetIsDead()                      //是否死亡
-		isHeal := item.GetType() == pb.EDamageType_Heal //是否治疗
+		isDead := item.GetIsDead()                      // Whether dead
+		isHeal := item.GetType() == pb.EDamageType_Heal // Whether heal
 
-		if !isTargetPlayer { //非玩家目标
+		if !isTargetPlayer { // Non-player target
 			if !isHeal {
 				if isAttackerPlayer {
 					global.FindMonsterId(targetUuid, func(monster *global.Monster) {
@@ -914,7 +914,7 @@ func ProcessAoiSyncDelta(data *pb.AoiSyncDelta) {
 					})
 				}
 			}
-			//更新怪物坐标
+			// Update monster coordinates
 			if item.DamagePos != nil {
 				global.FindMonsterId(targetUuid, func(monster *global.Monster) {
 					monster.Pos = &global.Position{
@@ -924,7 +924,7 @@ func ProcessAoiSyncDelta(data *pb.AoiSyncDelta) {
 					}
 				})
 			}
-			if isDead { //怪物死亡时移除血量
+			if isDead { // Remove HP when monster dies
 				global.FindMonsterId(targetUuid, func(monster *global.Monster) {
 					monster.Hp = 0
 				})

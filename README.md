@@ -1,51 +1,51 @@
 # StarResonanceAPI
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-brightgreen.svg)](https://www.gnu.org/licenses/agpl-3.0.txt)
 
-项目基于[StarResonanceDamageCounter](https://github.com/dmlgzs/StarResonanceDamageCounter)实现的方案开放更多的一些详细数据API
+Project based on [StarResonanceDamageCounter](https://github.com/dmlgzs/StarResonanceDamageCounter) implementation to provide more detailed data APIs
 
-### 前置要求
+### Prerequisites
 
 - npcap
 
 
-## 启动方式
+## Startup Method
 
-请在命令行下启动exe文件即可,自定义参数请按照下方参考
+Launch the exe file from the command line. For custom parameters, refer to the table below.
 
-## 启动参数
+## Startup Parameters
 
-| 参数              | 类型     | 默认值 | 说明                                  |
-|-----------------|--------|-----|-------------------------------------|
-| --network       | string |     | 网卡描述,auto为自动选择网卡                    |
-| --expire        | int    | 10  | 怪物数据包超时时间(秒),一定时间后未收到怪物数据包,则认为消失或死亡 |
-| --port          | int    | 8989 | API开放端口                             |
-| --autoCheckTime | int    | 3   | 自动探测活动网卡等待时间(秒)                        |
+| Parameter       | Type   | Default | Description                                                        |
+|-----------------|--------|---------|---------------------------------------------------------------------|
+| --network       | string |         | Network adapter description, use 'auto' for automatic selection     |
+| --expire        | int    | 10      | Monster data packet timeout (seconds), monster considered gone/dead if no packet received |
+| --port          | int    | 8989    | API service port                                                   |
+| --autoCheckTime | int    | 3       | Auto-detect active network adapter wait time (seconds)             |
 
 
-## 开放API
+## API Endpoints
 > GET /api/enemies
 
-获取敌方数据
+Get enemy data
 ```json
 {
     "code": 0,
     "msg": "OK",
     "enemy": {
-        //怪物实体ID
+        //Monster Entity ID
         "15247": {
-            "name": "山贼斧手", //怪物名称
-            "hp": 9728, //当前血量
-            "max_hp": 10992, //最大血量
-            "pos": { //实时移动坐标
+            "name": "Bandit Axeman", //Monster Name
+            "hp": 9728, //Current HP
+            "max_hp": 10992, //Maximum HP
+            "pos": { //Real-time position coordinates
                 "x": 191.65988,
                 "y": 185.6441,
                 "z": 433.85992
             },
-            "template_id": 10027, //怪物模板ID
-            "entity_id": 15247, //怪物实体ID
-            "attack_players": { //当前攻击的玩家
+            "template_id": 10027, //Monster Template ID
+            "entity_id": 15247, //Monster Entity ID
+            "attack_players": { //Players currently attacking
                 "35321": {
-                    "name": "" //玩家昵称(暂无)
+                    "name": "" //Player nickname (not available yet)
                 }
             }
         }
@@ -55,7 +55,7 @@
 
 > GET /api/clear
 
-清空所有统计数据
+Clear all statistics data
 
 ```json
 {
@@ -66,25 +66,25 @@
 
 > GET /api/scene
 
-当前玩家的一些场景数据
+Get current player's scene data
 
 ```json
 {
     "code": 0,
-    "data": { //首次启动这里是null,需要切换一次地图
+    "data": { //This is null on first startup, needs map change to populate
         "scene": {
-            "map_id": 8, //地图ID
-            "name": "阿斯特里斯", //场景名称
-            "line_id": 1 //线路ID
+            "map_id": 8, //Map ID
+            "name": "Asteris", //Scene Name
+            "line_id": 1 //Line/Server ID
         },
         "player": {
-            "id": 1000, //玩家UID
-            "fight_point": 25000, //能力评分
-            "name": "玩家名称",
+            "id": 1000, //Player UID
+            "fight_point": 25000, //Combat Rating
+            "name": "Player Name",
             "level": 60,
-            "hp": 500, //当前血量(血量暂时不是实时的)
-            "max_hp": 176429, //最大血量(血量暂时不是实时的)
-            "pos": {//实时坐标数据
+            "hp": 500, //Current HP (not real-time yet)
+            "max_hp": 176429, //Maximum HP (not real-time yet)
+            "pos": {//Real-time position coordinates
                 "x": 106.075485,
                 "y": 103.98257,
                 "z": 54.675217
@@ -95,13 +95,13 @@
 }
 ```
 
-## 致谢
+## Acknowledgments
 - [StarResonanceDamageCounter](https://github.com/dmlgzs/StarResonanceDamageCounter)
 - [StarResonanceData](https://github.com/PotRooms/StarResonanceData)
 
-## 许可证
+## License
 [![AGPLv3](https://www.gnu.org/graphics/agplv3-with-text-162x68.png)](LICENSE)
 
-使用本项目即表示您同意遵守该许可证的条款。
+By using this project, you agree to comply with the terms of this license.
 
-本项目采用 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证
+This project is licensed under the GNU AFFERO GENERAL PUBLIC LICENSE version 3
