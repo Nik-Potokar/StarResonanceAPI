@@ -1,0 +1,4 @@
+flask==3.0.0
+scapy==2.5.0
+protobuf==4.25.1
+zstandard==0.22.0

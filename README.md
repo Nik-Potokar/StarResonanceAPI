@@ -3,14 +3,33 @@
 
 项目基于[StarResonanceDamageCounter](https://github.com/dmlgzs/StarResonanceDamageCounter)实现的方案开放更多的一些详细数据API
 
+**注意：本项目已使用 Python 重写**
+
 ### 前置要求
 
-- npcap
+- Python 3.8 或更高版本
+- npcap (Windows) 或 libpcap (Linux/Mac)
+- 管理员/root 权限（用于抓包）
 
+
+## 安装
+
+```bash
+# 安装依赖
+pip install -r requirements.txt
+```
 
 ## 启动方式
 
-请在命令行下启动exe文件即可,自定义参数请按照下方参考
+```bash
+# Linux/Mac (需要 sudo)
+sudo python3 main.py
+
+# Windows (以管理员身份运行)
+python main.py
+```
+
+自定义参数请按照下方参考
 
 ## 启动参数
 

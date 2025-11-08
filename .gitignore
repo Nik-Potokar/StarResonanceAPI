@@ -44,3 +44,15 @@ debug
 
 # Air live reload
 tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
