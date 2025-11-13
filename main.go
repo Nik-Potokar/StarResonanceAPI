@@ -18,16 +18,16 @@ import (
 )
 
 var (
-	networkCard   = flag.String("network", "", "请输入网卡描述完整名称,auto为自动选择")
-	port          = flag.Int("port", 8989, "默认API端口")
-	expireTime    = flag.Int64("expire", 10, "数据过期时间(秒),默认10s")
-	autoCheckTime = flag.Int("autoCheckTime", 3, "自动检查活动网卡时间(秒)")
+	networkCard   = flag.String("network", "", "Enter network card full description, auto for automatic selection")
+	port          = flag.Int("port", 8989, "Default API port")
+	expireTime    = flag.Int64("expire", 10, "Data expiration time (seconds), default 10s")
+	autoCheckTime = flag.Int("autoCheckTime", 3, "Auto check active network card time (seconds)")
 )
 
 func main() {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Fatalf("程序崩溃: %v\n堆栈信息:\n%s", r, debug.Stack())
+			log.Fatalf("Program crashed: %v\nStack trace:\n%s", r, debug.Stack())
 		}
 	}()
 	flag.Parse()
@@ -35,15 +35,15 @@ func main() {
 	var deviceName = *networkCard
 	devices, err := pcap.FindAllDevs()
 	if err != nil {
-		log.Fatal("获取网卡失败: ", err.Error())
+		log.Fatal("Failed to get network cards: ", err.Error())
 	}
 	if deviceName == "auto" {
-		log.Println("正在自动查找活动网卡,请稍等...")
+		log.Println("Automatically finding active network card, please wait...")
 		active := ncap.GetActiveNetworkCards(devices, *autoCheckTime)
 		if active != nil {
-			log.Println("已自动找到合适的网卡: ", active.Desc)
-			log.Println("监听数据包数量: ", active.PacketCount)
-			log.Println("监听数据包流量: ", fmt.Sprintf("%d 字节 (%.2f KB)", active.ByteCount, float64(active.ByteCount)/1024))
+			log.Println("Automatically found suitable network card: ", active.Desc)
+			log.Println("Monitored packet count: ", active.PacketCount)
+			log.Println("Monitored packet traffic: ", fmt.Sprintf("%d bytes (%.2f KB)", active.ByteCount, float64(active.ByteCount)/1024))
 			deviceName = active.Desc
 		}
 	}
@@ -54,45 +54,45 @@ func main() {
 			options = append(options, device.Description)
 		}
 		prompt := &survey.Select{
-			Message: "无法自动找到活动网卡,请手动选择活动网卡(可以在自己的网络设置中找到网卡查看描述):",
+			Message: "Unable to automatically find active network card, please manually select (you can find the description in your network settings):",
 			Options: options,
 		}
 		err := survey.AskOne(prompt, &option)
 		if err != nil {
-			log.Fatalf("选择操作错误: %s", err.Error())
+			log.Fatalf("Selection error: %s", err.Error())
 		}
 		if len(option) == 0 {
-			log.Fatalf("选择网卡为空")
+			log.Fatalf("Network card selection is empty")
 		}
 		deviceName = option
 	}
 
-	// 加载怪物JSON列表
+	// Load monster JSON list
 	global.InitMonsterNames()
 
-	// 启动服务
+	// Start services
 	go Openapi()
 	go OpenCap(deviceName)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	log.Println("程序已启动，按 Ctrl+C 退出")
+	log.Println("Program started, press Ctrl+C to exit")
 	<-sigChan
-	log.Println("正在关闭程序...")
+	log.Println("Shutting down...")
 }
 
 func OpenCap(deviceName string) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("抓包服务崩溃: %v\n堆栈信息:\n%s", r, debug.Stack())
+			log.Printf("Packet capture service crashed: %v\nStack trace:\n%s", r, debug.Stack())
 			log.Println("API server will continue running. Press Ctrl+C to exit.")
 		}
 	}()
 
-	// 创建抓包核心
+	// Create packet capture core
 	capCore := ncap.NewCapCore()
 	if err := capCore.Start(deviceName); err != nil {
-		log.Printf("ERROR: 启动抓包失败: %v", err)
+		log.Printf("ERROR: Failed to start packet capture: %v", err)
 		log.Println("API server will continue running. Press Ctrl+C to exit.")
 		// Don't use Fatalf - let the API server continue running
 		return
@@ -101,14 +101,14 @@ func OpenCap(deviceName string) {
 func Openapi() {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("API服务崩溃: %v\n堆栈信息:\n%s", r, debug.Stack())
+			log.Printf("API service crashed: %v\nStack trace:\n%s", r, debug.Stack())
 		}
 	}()
 
 	gin.SetMode(gin.ReleaseMode)
 	s := gin.New()
 
-	// 添加全局panic恢复中间件
+	// Add global panic recovery middleware
 	s.Use(gin.Recovery())
 
 	s.GET("/api/enemies", func(ctx *gin.Context) {
@@ -121,12 +121,12 @@ func Openapi() {
 		list := make(map[uint64]*global.Monster)
 		for id, item := range global.SceneMonsterList {
 			if time.Now().Unix()-item.UpdateTime > et {
-				continue //忽略10秒没更新的数据
+				continue // Ignore data not updated in the last N seconds
 			}
 			attackPlayers := make(map[uint64]*global.AttackPlayer)
 			if item.AttackPlayers != nil {
 				for uid, player := range item.AttackPlayers {
-					if time.Now().Unix()-player.LastAttackTime > et { //忽略10秒没参与战斗的玩家
+					if time.Now().Unix()-player.LastAttackTime > et { // Ignore players not in combat in the last N seconds
 						continue
 					}
 					attackPlayers[uid] = player
@@ -160,7 +160,7 @@ func Openapi() {
 			"data": global.CurrentScene,
 		})
 	})
-	log.Println(fmt.Sprintf("服务启动在: http://127.0.0.1:%d", *port))
+	log.Println(fmt.Sprintf("Service started at: http://127.0.0.1:%d", *port))
 	if err := s.Run(fmt.Sprintf(":%d", *port)); err != nil {
 		log.Printf("ERROR: API server failed: %s", err.Error())
 		log.Println("Please check if the port is already in use or restart the application.")

@@ -16,16 +16,16 @@ type InterfaceStats struct {
 	ByteCount   int64  `json:"byte_count"`
 }
 
-// GetActiveNetworkCards 获取当前可能正在使用的网卡
+// GetActiveNetworkCards gets currently active network cards
 func GetActiveNetworkCards(devices []pcap.Interface, autoCheckTime int) *InterfaceStats {
 	if len(devices) == 0 {
-		log.Fatal("未找到任何网卡")
+		log.Fatal("No network cards found")
 	}
 	checkTime := autoCheckTime
 	if 1 > checkTime {
 		checkTime = 3
 	}
-	log.Println(fmt.Sprintf("开始监控所有网卡流量,请等待%d秒", checkTime))
+	log.Println(fmt.Sprintf("Starting to monitor all network card traffic, please wait %d seconds", checkTime))
 	stats := make(map[string]*InterfaceStats)
 	done := make(chan bool)
 	for _, device := range devices {
@@ -38,7 +38,7 @@ func GetActiveNetworkCards(devices []pcap.Interface, autoCheckTime int) *Interfa
 		go monitorInterface(device.Name, stats[device.Name], done)
 	}
 	time.Sleep(time.Duration(checkTime) * time.Second)
-	close(done) //关掉
+	close(done) // Close channel
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -61,10 +61,10 @@ func GetActiveNetworkCards(devices []pcap.Interface, autoCheckTime int) *Interfa
 }
 
 func monitorInterface(deviceName string, stats *InterfaceStats, done chan bool) {
-	// 打开网卡进行抓包
+	// Open network card for packet capture
 	handle, err := pcap.OpenLive(deviceName, 1600, true, pcap.BlockForever)
 	if err != nil {
-		// 某些网卡可能无法打开，静默忽略
+		// Some network cards may not be openable, silently ignore
 		return
 	}
 	defer handle.Close()

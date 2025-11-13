@@ -6,26 +6,26 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
-// CapCore 抓包核心类
+// CapCore packet capture core class
 type CapCore struct{}
 
-// NewCapCore 创建新的抓包核心
+// NewCapCore creates a new packet capture core
 func NewCapCore() *CapCore {
 	return &CapCore{}
 }
 
-// GetDevice 获取网卡设备
+// GetDevice gets network device
 func (cc *CapCore) GetDevice(deviceName string) (*pcap.Handle, error) {
-	// 查找所有网络设备
+	// Find all network devices
 	devices, err := pcap.FindAllDevs()
 	if err != nil {
-		return nil, fmt.Errorf("获取网卡列表失败: %v", err)
+		return nil, fmt.Errorf("failed to get network card list: %v", err)
 	}
 
-	// 查找指定名称的设备
+	// Find device with specified name
 	for _, device := range devices {
 		if device.Description == deviceName {
-			// 打开设备
+			// Open device
 			handle, err := pcap.OpenLive(
 				device.Name,
 				1024*1024*10,
@@ -33,20 +33,20 @@ func (cc *CapCore) GetDevice(deviceName string) (*pcap.Handle, error) {
 				pcap.BlockForever,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("无法打开网卡 %s: %v", device.Name, err)
+				return nil, fmt.Errorf("unable to open network card %s: %v", device.Name, err)
 			}
 			return handle, nil
 		}
 	}
 
-	return nil, fmt.Errorf("网卡设备不存在: %s", deviceName)
+	return nil, fmt.Errorf("network device does not exist: %s", deviceName)
 }
 
-// Start 启动抓包
+// Start starts packet capture
 func (cc *CapCore) Start(deviceName string) error {
 	device, err := cc.GetDevice(deviceName)
 	if err != nil {
-		return fmt.Errorf("获取网卡失败: %v", err)
+		return fmt.Errorf("failed to get network card: %v", err)
 	}
 	capDevice := NewCapDevice(device, deviceName)
 	return capDevice.Start()
