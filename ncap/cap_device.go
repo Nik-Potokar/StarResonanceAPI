@@ -45,6 +45,11 @@ type CapDevice struct {
 	loginReturnSignature []byte
 
 	packetQueue *Queue[gopacket.Packet]
+
+	// Position tracking metrics
+	positionUpdateCount    uint64
+	lastPositionUpdateTime time.Time
+	positionMutex          sync.Mutex
 }
 
 // NewCapDevice 创建新的抓包设备
@@ -57,7 +62,7 @@ func NewCapDevice(device *pcap.Handle, deviceName string) *CapDevice {
 		tcpDataBuffer:   make([]byte, 0),
 		tcpStream:       bytes.NewBuffer(nil),
 		tcpNextSeq:      0, // 初始化为0而不是-1
-		idleTimeout:     10 * time.Second,
+		idleTimeout:     0, // Disabled - API should always be running
 		gapTimeout:      2 * time.Second,
 		packetQueue:     NewQueue[gopacket.Packet](),
 		serverSignature: []byte{0x00, 0x63, 0x33, 0x53, 0x42, 0x00},
@@ -89,6 +94,26 @@ func (cd *CapDevice) Start() error {
 	log.Println("启动网络抓包: ", cd.deviceName)
 
 	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("CRITICAL: Packet processing goroutine crashed: %v\nAttempting to restart...", err)
+				// Restart the goroutine
+				go func() {
+					defer func() {
+						if err := recover(); err != nil {
+							log.Fatalf("FATAL: Packet processing goroutine crashed again: %v", err)
+						}
+					}()
+					for {
+						if packet, ok := cd.packetQueue.Dequeue(); ok {
+							cd.handlePacket(packet)
+						} else {
+							time.Sleep(time.Millisecond * 50)
+						}
+					}
+				}()
+			}
+		}()
 		for {
 			if packet, ok := cd.packetQueue.Dequeue(); ok {
 				cd.handlePacket(packet)
@@ -104,11 +129,20 @@ func (cd *CapDevice) Start() error {
 		if packet != nil {
 			cd.packetQueue.Enqueue(packet)
 		} else {
-			log.Println("发现空的packet")
+			log.Println("WARNING: 发现空的packet")
 		}
 	}
-	log.Fatalf("数据包chan被关闭,中止运行")
-	return nil
+
+	// Packet source channel closed - attempt graceful handling
+	log.Println("ERROR: 数据包chan被关闭 - packet capture stopped")
+	log.Println("This may be caused by:")
+	log.Println("  - Network adapter disconnected")
+	log.Println("  - Driver issue")
+	log.Println("  - Permission changes")
+	log.Println("The API server will continue running, but position updates will stop.")
+	log.Println("Please restart the application to resume packet capture.")
+
+	return fmt.Errorf("packet source closed unexpectedly")
 }
 
 // handlePacket 处理单个数据包
@@ -170,13 +204,14 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 	defer cd.tcpMutex.Unlock()
 	now := time.Now()
 
-	// 检查空闲超时
+	// 检查空闲超时 (only if enabled)
 	if cd.currentServer != "" {
 		if cd.currentServer == srcServer || cd.currentServer == revServer {
 			cd.lastAnyPacketAt = now
 		}
-		//超时未识别到数据
-		if cd.lastAnyPacketAt != (time.Time{}) && now.Sub(cd.lastAnyPacketAt) > cd.idleTimeout {
+		//超时未识别到数据 (disabled when idleTimeout is 0)
+		if cd.idleTimeout > 0 && cd.lastAnyPacketAt != (time.Time{}) && now.Sub(cd.lastAnyPacketAt) > cd.idleTimeout {
+			log.Printf("WARNING: Idle timeout detected (%v since last packet)", now.Sub(cd.lastAnyPacketAt))
 			cd.forceReconnect("idle timeout")
 		}
 	}
@@ -221,10 +256,15 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 						break
 					}
 					if cd.currentServer != srcServer {
+						previousServer := cd.currentServer
+						log.Printf("INFO: Server identification via small packet - New server: %s (Previous: %s)", srcAddr, previousServer)
 						cd.currentServer = srcServer
 						cd.clearTcpCache()
 						cd.tcpNextSeq = tcp.Seq + uint32(len(payload))
-						global.ClearAllData()
+						if previousServer != "" {
+							log.Println("WARNING: Clearing all data due to server change (position data will be lost)")
+							global.ClearAllData()
+						}
 						log.Println("识别游戏服务器: ", srcAddr)
 						findGameServer = true
 						break
@@ -238,10 +278,15 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 			if bytes.Equal(payload[0:10], cd.loginReturnSignature[0:10]) &&
 				bytes.Equal(payload[14:20], cd.loginReturnSignature[14:20]) {
 				//设置新的游戏服务器标识
+				previousServer := cd.currentServer
+				log.Printf("INFO: Server identification via login packet - New server: %s (Previous: %s)", srcAddr, previousServer)
 				cd.currentServer = srcServer
 				cd.clearTcpCache()
 				cd.tcpNextSeq = tcp.Seq + uint32(len(payload))
-				global.ClearAllData()
+				if previousServer != "" {
+					log.Println("WARNING: Clearing all data due to server change (position data will be lost)")
+					global.ClearAllData()
+				}
 				log.Println("识别游戏服务器: ", srcAddr)
 				findGameServer = true
 			}
@@ -282,7 +327,12 @@ func (cd *CapDevice) handlePacket(packet gopacket.Packet) {
 						}
 
 						if cd.currentServer != revServer {
-							global.ClearAllData()
+							previousServer := cd.currentServer
+							log.Printf("INFO: Server identification via signature - New server: %s (Previous: %s)", revAddr, previousServer)
+							if previousServer != "" {
+								log.Println("WARNING: Clearing all data due to server change (position data will be lost)")
+								global.ClearAllData()
+							}
 							cd.currentServer = revServer
 							cd.clearTcpCache()
 							cd.tcpNextSeq = tcp.Ack
@@ -686,7 +736,7 @@ func monsterAttr(entityId uint64, attrs *pb.AttrCollection) {
 			case 0x01: //名称
 				value, n := protowire.ConsumeString(attr.RawData)
 				if n > 0 && len(value) > 0 {
-					log.Println(fmt.Sprintf("发现怪物: %s#%d", value, entityId))
+					// Removed: log.Println(fmt.Sprintf("发现怪物: %s#%d", value, entityId))
 					monster.Name = value
 				}
 			case 0x0A: //怪物模板ID
@@ -694,7 +744,7 @@ func monsterAttr(entityId uint64, attrs *pb.AttrCollection) {
 				if n > 0 {
 					monster.TemplateId = value
 					if name, has := global.MonsterNames[value]; has {
-						log.Println(fmt.Sprintf("发现怪物: %s#%d", name, entityId))
+						// Removed: log.Println(fmt.Sprintf("发现怪物: %s#%d", name, entityId))
 						monster.Name = name
 					}
 				}
@@ -818,12 +868,35 @@ func (cd *CapDevice) processSyncToMeDeltaInfo(payload []byte) {
 			case 53: //坐标数据解析
 				var posMsg pb.Vector3
 				if err := proto.Unmarshal(attr.GetRawData(), &posMsg); err != nil {
-					log.Println("解析坐标数据失败: ", err.Error())
+					log.Println("ERROR: 解析坐标数据失败: ", err.Error())
 					continue
 				}
+
+				// Track position updates
+				cd.positionMutex.Lock()
+				cd.positionUpdateCount++
+				updateCount := cd.positionUpdateCount
+				lastUpdate := cd.lastPositionUpdateTime
+				cd.lastPositionUpdateTime = time.Now()
+				currentTime := cd.lastPositionUpdateTime
+				cd.positionMutex.Unlock()
+
+				// Log position update with metrics
+				timeSinceLastUpdate := time.Duration(0)
+				if !lastUpdate.IsZero() {
+					timeSinceLastUpdate = currentTime.Sub(lastUpdate)
+				}
+
+				log.Printf("Position Update #%d: X=%.2f, Y=%.2f, Z=%.2f (last update: %v ago)",
+					updateCount, posMsg.GetX(), posMsg.GetY(), posMsg.GetZ(), timeSinceLastUpdate)
+
+				// Warn if position updates stopped for more than 5 seconds
+				if timeSinceLastUpdate > 5*time.Second && !lastUpdate.IsZero() {
+					log.Printf("WARNING: Position update gap detected! No updates for %v", timeSinceLastUpdate)
+				}
+
 				global.UpdateScene(func(sceneInfo *global.SceneInfo) {
 					if sceneInfo != nil && sceneInfo.Player != nil {
-						//log.Println("当前坐标:", posMsg.GetX(), posMsg.GetY(), posMsg.GetZ())
 						sceneInfo.Player.Pos = &global.Position{
 							X: posMsg.GetX(),
 							Y: posMsg.GetY(),

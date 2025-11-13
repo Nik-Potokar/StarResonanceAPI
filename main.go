@@ -85,13 +85,17 @@ func OpenCap(deviceName string) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("抓包服务崩溃: %v\n堆栈信息:\n%s", r, debug.Stack())
+			log.Println("API server will continue running. Press Ctrl+C to exit.")
 		}
 	}()
 
 	// 创建抓包核心
 	capCore := ncap.NewCapCore()
 	if err := capCore.Start(deviceName); err != nil {
-		log.Fatalf("启动抓包失败: %v", err)
+		log.Printf("ERROR: 启动抓包失败: %v", err)
+		log.Println("API server will continue running. Press Ctrl+C to exit.")
+		// Don't use Fatalf - let the API server continue running
+		return
 	}
 }
 func Openapi() {
@@ -158,6 +162,9 @@ func Openapi() {
 	})
 	log.Println(fmt.Sprintf("服务启动在: http://127.0.0.1:%d", *port))
 	if err := s.Run(fmt.Sprintf(":%d", *port)); err != nil {
-		log.Fatalf(err.Error())
+		log.Printf("ERROR: API server failed: %s", err.Error())
+		log.Println("Please check if the port is already in use or restart the application.")
+		// Don't use Fatalf - let the panic recovery handle it
+		return
 	}
 }
